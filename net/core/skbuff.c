@@ -4361,7 +4361,6 @@ struct sk_buff *skb_segment_list(struct sk_buff *skb,
 	DEBUG_NET_WARN_ON_ONCE(!(skb_shinfo(skb)->gso_type & SKB_GSO_FRAGLIST));
 
 	skb_push(skb, -skb_network_offset(skb) + offset);
-
 	/* Ensure the head is writeable before touching the shared info */
 	err = skb_unclone(skb, GFP_ATOMIC);
 	if (err)
@@ -6625,7 +6624,6 @@ void skb_condense(struct sk_buff *skb)
 		if (skb->data_len > skb->end - skb->tail ||
 		    skb_cloned(skb))
 			return;
-
 		/* Nice, we can free page frag(s) right now */
 		__pskb_pull_tail(skb, skb->data_len);
 	}
