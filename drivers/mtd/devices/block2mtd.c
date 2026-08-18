@@ -11,10 +11,10 @@
 
 /*
  * When the first attempt at device initialization fails, we may need to
- * wait a little bit and retry. This timeout, by default 5 seconds, gives
+ * wait a little bit and retry. This timeout, by default 3 seconds, gives
  * device time to start up. Required on BCM2708 and a few other chipsets.
  */
-#define MTD_DEFAULT_TIMEOUT	5
+#define MTD_DEFAULT_TIMEOUT	3
 
 #include <linux/module.h>
 #include <linux/delay.h>
@@ -26,7 +26,6 @@
 #include <linux/list.h>
 #include <linux/init.h>
 #include <linux/mtd/mtd.h>
-#include <linux/kthread.h>
 #include <linux/mutex.h>
 #include <linux/mount.h>
 #include <linux/slab.h>
@@ -190,20 +189,6 @@ static int block2mtd_write(struct mtd_info *mtd, loff_t to, size_t len,
 	return err;
 }
 
-static int block2mtd_panic_write(struct mtd_info *mtd, loff_t to, size_t len,
-			size_t *retlen, const u_char *buf)
-{
-	struct block2mtd_dev *dev = mtd->priv;
-	int err;
-
-	err = _block2mtd_write(dev, buf, to, len, retlen);
-	if (err > 0)
-		err = 0;
-	if (!err)
-		err = sync_blockdev(dev->blkdev);
-	return err;
-}
-
 
 /* sync the device - wait until the write queue is empty */
 static void block2mtd_sync(struct mtd_info *mtd)
@@ -238,32 +223,36 @@ static struct block_device __ref *mdtblock_early_get_bdev(const char *devname,
 		blk_mode_t mode, int timeout, struct block2mtd_dev *dev)
 {
 	struct block_device *bdev = ERR_PTR(-ENODEV);
-
-#ifdef MODULE
+#ifndef MODULE
 	int i;
 
-	for (i = 0; i <= timeout; i++) {
-		if (i)
-			msleep(1000);
-		wait_for_device_probe();
-		bdev = blkdev_get_by_path(devname, mode, dev, NULL);
-		if (!IS_ERR(bdev))
-			break;
-	}
-#else
 	/*
 	 * We can't use early_lookup_bdev from a running system.
 	 */
 	if (system_state >= SYSTEM_RUNNING)
 		return bdev;
 
-	/* Ramdisk-backed storage drivers cannot load while an initcall waits. */
-	{
+	/*
+	 * We might not have the root device mounted at this point.
+	 * Try to resolve the device name by other means.
+	 */
+	for (i = 0; i <= timeout; i++) {
 		dev_t devt;
 
+		if (i)
+			/*
+			 * Calling wait_for_device_probe in the first loop
+			 * was not enough, sleep for a bit in subsequent
+			 * go-arounds.
+			 */
+			msleep(1000);
 		wait_for_device_probe();
-		if (!early_lookup_bdev(devname, &devt))
+
+		if (!early_lookup_bdev(devname, &devt)) {
 			bdev = blkdev_get_by_dev(devt, mode, dev, NULL);
+			if (!IS_ERR(bdev))
+				break;
+		}
 	}
 #endif
 	return bdev;
@@ -325,7 +314,6 @@ static struct block2mtd_dev *add_device(char *devname, int erase_size,
 	dev->mtd.flags = MTD_CAP_RAM;
 	dev->mtd._erase = block2mtd_erase;
 	dev->mtd._write = block2mtd_write;
-	dev->mtd._panic_write = block2mtd_panic_write;
 	dev->mtd._sync = block2mtd_sync;
 	dev->mtd._read = block2mtd_read;
 	dev->mtd.priv = dev;
@@ -499,43 +487,13 @@ static int block2mtd_setup(const char *val, const struct kernel_param *kp)
 module_param_call(block2mtd, block2mtd_setup, NULL, NULL, 0200);
 MODULE_PARM_DESC(block2mtd, "Device to use. \"block2mtd=<dev>[,[<erasesize>][,<label>]]\"");
 
-#ifndef MODULE
-static struct task_struct *block2mtd_retry_task;
-
-static int block2mtd_retry_thread(void *unused)
-{
-	int attempts = MTD_DEFAULT_TIMEOUT * 4;
-	int i;
-
-	for (i = 0; i <= attempts && !kthread_should_stop(); i++) {
-		if (i)
-			msleep(250);
-		block2mtd_setup2(block2mtd_paramline);
-		if (!list_empty(&blkmtd_device_list)) {
-			pr_info("async attach succeeded after %d attempt(s)\n", i + 1);
-			return 0;
-		}
-	}
-
-	pr_err("async attach timed out after %d ms\n",
-	       MTD_DEFAULT_TIMEOUT * 1000);
-	return 0;
-}
-#endif
-
 static int __init block2mtd_init(void)
 {
 	int ret = 0;
 
 #ifndef MODULE
-	if (strlen(block2mtd_paramline)) {
-		block2mtd_retry_task = kthread_run(block2mtd_retry_thread, NULL,
-						 "block2mtd_retry");
-		if (IS_ERR(block2mtd_retry_task)) {
-			ret = PTR_ERR(block2mtd_retry_task);
-			block2mtd_retry_task = NULL;
-		}
-	}
+	if (strlen(block2mtd_paramline))
+		ret = block2mtd_setup2(block2mtd_paramline);
 	block2mtd_init_called = 1;
 #endif
 
@@ -546,11 +504,6 @@ static int __init block2mtd_init(void)
 static void block2mtd_exit(void)
 {
 	struct list_head *pos, *next;
-
-#ifndef MODULE
-	if (block2mtd_retry_task)
-		kthread_stop(block2mtd_retry_task);
-#endif
 
 	/* Remove the MTD devices */
 	list_for_each_safe(pos, next, &blkmtd_device_list) {
