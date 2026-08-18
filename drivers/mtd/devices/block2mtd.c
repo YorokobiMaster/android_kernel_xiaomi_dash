@@ -11,10 +11,10 @@
 
 /*
  * When the first attempt at device initialization fails, we may need to
- * wait a little bit and retry. This timeout, by default 3 seconds, gives
+ * wait a little bit and retry. This timeout, by default 5 seconds, gives
  * device time to start up. Required on BCM2708 and a few other chipsets.
  */
-#define MTD_DEFAULT_TIMEOUT	3
+#define MTD_DEFAULT_TIMEOUT	5
 
 #include <linux/module.h>
 #include <linux/delay.h>
@@ -189,6 +189,20 @@ static int block2mtd_write(struct mtd_info *mtd, loff_t to, size_t len,
 	return err;
 }
 
+static int block2mtd_panic_write(struct mtd_info *mtd, loff_t to, size_t len,
+			size_t *retlen, const u_char *buf)
+{
+	struct block2mtd_dev *dev = mtd->priv;
+	int err;
+
+	err = _block2mtd_write(dev, buf, to, len, retlen);
+	if (err > 0)
+		err = 0;
+	if (!err)
+		err = sync_blockdev(dev->blkdev);
+	return err;
+}
+
 
 /* sync the device - wait until the write queue is empty */
 static void block2mtd_sync(struct mtd_info *mtd)
@@ -223,9 +237,18 @@ static struct block_device __ref *mdtblock_early_get_bdev(const char *devname,
 		blk_mode_t mode, int timeout, struct block2mtd_dev *dev)
 {
 	struct block_device *bdev = ERR_PTR(-ENODEV);
-#ifndef MODULE
 	int i;
 
+#ifdef MODULE
+	for (i = 0; i <= timeout; i++) {
+		if (i)
+			msleep(1000);
+		wait_for_device_probe();
+		bdev = blkdev_get_by_path(devname, mode, dev, NULL);
+		if (!IS_ERR(bdev))
+			break;
+	}
+#else
 	/*
 	 * We can't use early_lookup_bdev from a running system.
 	 */
@@ -314,6 +337,7 @@ static struct block2mtd_dev *add_device(char *devname, int erase_size,
 	dev->mtd.flags = MTD_CAP_RAM;
 	dev->mtd._erase = block2mtd_erase;
 	dev->mtd._write = block2mtd_write;
+	dev->mtd._panic_write = block2mtd_panic_write;
 	dev->mtd._sync = block2mtd_sync;
 	dev->mtd._read = block2mtd_read;
 	dev->mtd.priv = dev;

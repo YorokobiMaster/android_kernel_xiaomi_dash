@@ -23,7 +23,7 @@
 #include <linux/kmsg_dump.h>
 
 /* Maximum MTD partition size */
-#define MTDOOPS_MAX_MTD_SIZE (8 * 1024 * 1024)
+#define MTDOOPS_MAX_MTD_SIZE (16 * 1024 * 1024)
 
 static unsigned long record_size = 4096;
 module_param(record_size, ulong, 0400);
