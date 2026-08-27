@@ -619,6 +619,10 @@ mtdchar_write_ioctl(struct mtd_info *mtd, struct mtd_write_req __user *argp)
 	req.len &= 0xffffffff;
 	req.ooblen &= 0xffffffff;
 
+	/*
+	 * req.start remains a userspace-controlled u64, so reject addition
+	 * wraparound as well as a request ending beyond the device.
+	 */
 	if (check_add_overflow(req.start, req.len, &end) || end > mtd->size)
 		return -EINVAL;
 
@@ -726,6 +730,10 @@ mtdchar_read_ioctl(struct mtd_info *mtd, struct mtd_read_req __user *argp)
 	req.len &= 0xffffffff;
 	req.ooblen &= 0xffffffff;
 
+	/*
+	 * req.start remains a userspace-controlled u64, so reject addition
+	 * wraparound as well as a request ending beyond the device.
+	 */
 	if (check_add_overflow(req.start, req.len, &end) || end > mtd->size) {
 		ret = -EINVAL;
 		goto out;
