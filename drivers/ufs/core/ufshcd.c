@@ -115,6 +115,8 @@ enum {
 /* UFSHC 4.0 compliant HC support this mode. */
 static bool use_mcq_mode = true;
 
+static int ufshcd_register_wlun_driver(void);
+
 static bool is_mcq_supported(struct ufs_hba *hba)
 {
 	return hba->mcq_sup && use_mcq_mode;
@@ -10551,6 +10553,14 @@ int ufshcd_init(struct ufs_hba *hba, void __iomem *mmio_base, unsigned int irq)
 		goto out_error;
 	}
 
+	/* The device WLUN must bind before the SCSI host exposes other LUNs. */
+	err = ufshcd_register_wlun_driver();
+	if (err) {
+		dev_err(hba->dev,
+			"failed to register UFS device WLUN driver: %d\n", err);
+		goto out_error;
+	}
+
 	hba->mmio_base = mmio_base;
 	hba->irq = irq;
 	hba->vps = &ufs_hba_vps;
@@ -10939,24 +10949,51 @@ static struct scsi_driver ufs_dev_wlun_template = {
 	},
 };
 
-static int __init ufshcd_core_init(void)
-{
-	int ret;
+static DEFINE_MUTEX(ufs_dev_wlun_lock);
+static bool ufs_dev_wlun_registered;
 
-	ufshcd_check_header_layout();
+static int ufshcd_register_wlun_driver(void)
+{
+	int ret = 0;
+
+	mutex_lock(&ufs_dev_wlun_lock);
+	if (ufs_dev_wlun_registered)
+		goto out;
 
 	ufs_debugfs_init();
-
 	ret = scsi_register_driver(&ufs_dev_wlun_template.gendrv);
-	if (ret)
+	if (ret) {
 		ufs_debugfs_exit();
+		goto out;
+	}
+
+	ufs_dev_wlun_registered = true;
+out:
+	mutex_unlock(&ufs_dev_wlun_lock);
 	return ret;
+}
+
+static void ufshcd_unregister_wlun_driver(void)
+{
+	mutex_lock(&ufs_dev_wlun_lock);
+	if (ufs_dev_wlun_registered) {
+		ufs_debugfs_exit();
+		scsi_unregister_driver(&ufs_dev_wlun_template.gendrv);
+		ufs_dev_wlun_registered = false;
+	}
+	mutex_unlock(&ufs_dev_wlun_lock);
+}
+
+static int __init ufshcd_core_init(void)
+{
+	ufshcd_check_header_layout();
+
+	return ufshcd_register_wlun_driver();
 }
 
 static void __exit ufshcd_core_exit(void)
 {
-	ufs_debugfs_exit();
-	scsi_unregister_driver(&ufs_dev_wlun_template.gendrv);
+	ufshcd_unregister_wlun_driver();
 }
 
 module_init(ufshcd_core_init);
