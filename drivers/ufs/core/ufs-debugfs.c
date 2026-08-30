@@ -21,7 +21,7 @@ static inline struct ufs_hba *hba_from_file(const struct file *file)
 	return d_inode(file->f_path.dentry->d_parent)->i_private;
 }
 
-void __init ufs_debugfs_init(void)
+void ufs_debugfs_init(void)
 {
 	ufs_debugfs_root = debugfs_create_dir("ufshcd", NULL);
 }

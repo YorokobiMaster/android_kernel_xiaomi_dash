@@ -15,6 +15,8 @@
  * device time to start up. Required on BCM2708 and a few other chipsets.
  */
 #define MTD_DEFAULT_TIMEOUT	3
+#define BLOCK2MTD_RETRY_ATTEMPTS	5
+#define BLOCK2MTD_RETRY_DELAY_MS	2000
 
 #include <linux/module.h>
 #include <linux/delay.h>
@@ -30,6 +32,7 @@
 #include <linux/mount.h>
 #include <linux/slab.h>
 #include <linux/major.h>
+#include <linux/workqueue.h>
 
 /* Maximum number of comma-separated items in the 'block2mtd=' parameter */
 #define BLOCK2MTD_PARAM_MAX_COUNT 3
@@ -45,6 +48,22 @@ struct block2mtd_dev {
 
 /* Static info about the MTD, used in cleanup_module */
 static LIST_HEAD(blkmtd_device_list);
+
+#ifdef MODULE
+struct block2mtd_retry_info {
+	char *devname;
+	int erase_size;
+	size_t boot_mode;
+	unsigned int attempt;
+};
+
+static DEFINE_MUTEX(block2mtd_retry_lock);
+static struct block2mtd_retry_info *block2mtd_retry_info;
+static bool block2mtd_retry_stopping;
+static void block2mtd_retry_workfn(struct work_struct *work);
+static DECLARE_DELAYED_WORK(block2mtd_retry_work,
+			    block2mtd_retry_workfn);
+#endif
 
 
 static struct page *page_read(struct address_space *mapping, pgoff_t index)
@@ -338,6 +357,99 @@ err_free_block2mtd:
 	return NULL;
 }
 
+#ifdef MODULE
+static void block2mtd_retry_workfn(struct work_struct *work)
+{
+	struct block2mtd_retry_info *info;
+	struct block2mtd_dev *dev;
+
+	(void)work;
+	mutex_lock(&block2mtd_retry_lock);
+	info = block2mtd_retry_info;
+	if (!info || block2mtd_retry_stopping) {
+		mutex_unlock(&block2mtd_retry_lock);
+		return;
+	}
+
+	wait_for_device_probe();
+	pr_info("i %u, devname is %s\n", info->attempt, info->devname);
+	dev = add_device(info->devname, info->erase_size, NULL, 0);
+	if (dev) {
+		pr_info("devname is %s, erase_size is %d, label is %zu, timeout is %d\n",
+			info->devname, info->erase_size, info->boot_mode,
+			BLOCK2MTD_RETRY_ATTEMPTS);
+		kfree(info->devname);
+		kfree(info);
+		block2mtd_retry_info = NULL;
+		mutex_unlock(&block2mtd_retry_lock);
+		return;
+	}
+
+	if (info->attempt++ < BLOCK2MTD_RETRY_ATTEMPTS) {
+		pr_info("sleep retry_count is %u\n",
+			BLOCK2MTD_RETRY_ATTEMPTS - info->attempt + 1);
+		queue_delayed_work(system_unbound_wq, &block2mtd_retry_work,
+				   msecs_to_jiffies(BLOCK2MTD_RETRY_DELAY_MS));
+	} else {
+		pr_err("retry timed out for %s\n", info->devname);
+		kfree(info->devname);
+		kfree(info);
+		block2mtd_retry_info = NULL;
+	}
+	mutex_unlock(&block2mtd_retry_lock);
+}
+
+static void block2mtd_schedule_retry(const char *devname, int erase_size,
+				     size_t boot_mode)
+{
+	struct block2mtd_retry_info *info;
+
+	info = kzalloc(sizeof(*info), GFP_KERNEL);
+	if (!info)
+		return;
+
+	info->devname = kstrdup(devname, GFP_KERNEL);
+	if (!info->devname) {
+		kfree(info);
+		return;
+	}
+	info->erase_size = erase_size;
+	info->boot_mode = boot_mode;
+
+	mutex_lock(&block2mtd_retry_lock);
+	if (block2mtd_retry_info || block2mtd_retry_stopping) {
+		mutex_unlock(&block2mtd_retry_lock);
+		kfree(info->devname);
+		kfree(info);
+		return;
+	}
+
+	block2mtd_retry_info = info;
+	pr_info("devname is %s, erase_size is %d, label is %zu, timeout is %d\n",
+		info->devname, info->erase_size, info->boot_mode,
+		BLOCK2MTD_RETRY_ATTEMPTS);
+	queue_delayed_work(system_unbound_wq, &block2mtd_retry_work, 0);
+	mutex_unlock(&block2mtd_retry_lock);
+}
+
+static void block2mtd_cancel_retry(void)
+{
+	mutex_lock(&block2mtd_retry_lock);
+	block2mtd_retry_stopping = true;
+	mutex_unlock(&block2mtd_retry_lock);
+
+	cancel_delayed_work_sync(&block2mtd_retry_work);
+
+	mutex_lock(&block2mtd_retry_lock);
+	if (block2mtd_retry_info) {
+		kfree(block2mtd_retry_info->devname);
+		kfree(block2mtd_retry_info);
+		block2mtd_retry_info = NULL;
+	}
+	mutex_unlock(&block2mtd_retry_lock);
+}
+#endif
+
 
 /* This function works similar to reguler strtoul.  In addition, it
  * allows some suffixes for a more human-readable number format:
@@ -405,9 +517,15 @@ static int block2mtd_setup2(const char *val)
 	char *str = buf;
 	char *token[BLOCK2MTD_PARAM_MAX_COUNT];
 	char *name;
+#ifndef MODULE
 	char *label = NULL;
+#else
+	size_t boot_mode = 0;
+#endif
 	size_t erase_size = PAGE_SIZE;
+#ifndef MODULE
 	unsigned long timeout = MTD_DEFAULT_TIMEOUT;
+#endif
 	int i, ret;
 
 	if (strnlen(val, sizeof(buf)) >= sizeof(buf)) {
@@ -437,7 +555,7 @@ static int block2mtd_setup2(const char *val)
 		return 0;
 	}
 
-	/* Optional argument when custom label is used */
+	/* Optional erase size. */
 	if (token[1] && strlen(token[1])) {
 		ret = parse_num(&erase_size, token[1]);
 		if (ret) {
@@ -446,12 +564,31 @@ static int block2mtd_setup2(const char *val)
 		}
 	}
 
+	/* The dash module ABI uses the third argument as the boot mode. */
 	if (token[2]) {
+#ifdef MODULE
+		if (strlen(token[2])) {
+			ret = parse_num(&boot_mode, token[2]);
+			if (ret) {
+				pr_err("illegal label\n");
+				return 0;
+			}
+		}
+		pr_info("label is %zu\n", boot_mode);
+#else
+		/* Built-in block2mtd retains the upstream custom-label ABI. */
 		label = token[2];
 		pr_info("Using custom MTD label '%s' for dev %s\n", label, name);
+#endif
 	}
 
+#ifdef MODULE
+	pr_info("%s: mode is %zu\n", __func__, boot_mode);
+	if (!add_device(name, erase_size, NULL, 0))
+		block2mtd_schedule_retry(name, erase_size, boot_mode);
+#else
 	add_device(name, erase_size, label, timeout);
+#endif
 
 	return 0;
 }
@@ -504,6 +641,10 @@ static int __init block2mtd_init(void)
 static void block2mtd_exit(void)
 {
 	struct list_head *pos, *next;
+
+#ifdef MODULE
+	block2mtd_cancel_retry();
+#endif
 
 	/* Remove the MTD devices */
 	list_for_each_safe(pos, next, &blkmtd_device_list) {

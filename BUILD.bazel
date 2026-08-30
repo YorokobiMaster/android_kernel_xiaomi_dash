@@ -24,6 +24,7 @@ load(
     "kernel_abi",
     "kernel_build",
     "kernel_images",
+    "kernel_module_group",
     "kernel_modules_install",
     "merged_kernel_uapi_headers",
 )
@@ -123,6 +124,7 @@ filegroup(
         "android/abi_gki_aarch64_imx",
         "android/abi_gki_aarch64_kunit",
         "android/abi_gki_aarch64_lenovo",
+        "android/abi_gki_aarch64_moto",
         "android/abi_gki_aarch64_mtk",
         "android/abi_gki_aarch64_mtktv",
         "android/abi_gki_aarch64_nothing",
@@ -132,6 +134,7 @@ filegroup(
         "android/abi_gki_aarch64_pixel",
         "android/abi_gki_aarch64_pixel_watch",
         "android/abi_gki_aarch64_qcom",
+        "android/abi_gki_aarch64_siengine",
         "android/abi_gki_aarch64_sunxi",
         "android/abi_gki_aarch64_tcl",
         "android/abi_gki_aarch64_transsion",
@@ -140,8 +143,10 @@ filegroup(
         "android/abi_gki_aarch64_unisoc",
         "android/abi_gki_aarch64_virtual_device",
         "android/abi_gki_aarch64_vivo",
+        "android/abi_gki_aarch64_wonder",
         "android/abi_gki_aarch64_xiaomi",
-        "android/abi_gki_aarch64_xiaomi2",
+        "android/abi_gki_aarch64_xiaomi_wear",
+        "android/abi_gki_aarch64_xiaomi_xring",
     ],
     visibility = ["//visibility:public"],
 )
@@ -174,7 +179,7 @@ define_common_kernels(target_configs = {
         "ddk_headers_archive": ":kernel_aarch64_ddk_headers_archive",
         "extra_dist": [
             ":test_mappings_zip",
-            ":tests_zip_arm64",
+            ":tests_zip_arm64_16k",
         ],
     },
     "kernel_aarch64_autofdo": {
@@ -352,6 +357,51 @@ copy_to_dist_dir(
         ":kernel_x86_64_crashdump",
     ],
     dist_dir = "out/kernel_x86_64_crashdump/dist",
+    flat = True,
+    log = "info",
+)
+
+kernel_build(
+    name = "wonder_aarch64",
+    outs = [],
+    base_kernel = ":kernel_aarch64",
+    build_config = "build.config.wonder",
+    collect_unstripped_modules = True,
+    kmi_symbol_list = "android/abi_gki_aarch64_wonder",
+    make_goals = ["modules"],
+    module_outs = [
+        "net/mac80211/mac80211.ko",
+        "net/wireless/cfg80211.ko",
+    ],
+    strip_modules = True,
+)
+
+kernel_module_group(
+    name = "wonder_ddk_modules",
+    srcs = ["//common-modules/wonder"],
+)
+
+kernel_abi(
+    name = "wonder_aarch64_abi",
+    kernel_build = ":wonder_aarch64",
+    kernel_modules = [":wonder_ddk_modules"],
+)
+
+kernel_modules_install(
+    name = "wonder_aarch64_modules_install",
+    kernel_build = ":wonder_aarch64",
+    kernel_modules = [":wonder_ddk_modules"],
+)
+
+copy_to_dist_dir(
+    name = "wonder_aarch64_dist",
+    data = [
+        ":kernel_aarch64",
+        ":kernel_aarch64_additional_artifacts",
+        ":wonder_aarch64",
+        ":wonder_aarch64_modules_install",
+    ],
+    dist_dir = "out/wonder_aarch64/dist",
     flat = True,
     log = "info",
 )
@@ -890,6 +940,16 @@ pkg_files(
 )
 
 pkg_files(
+    name = "kunit_modules_arm64_16k",
+    srcs = [
+        ":kernel_aarch64_16k/" + e
+        for e in get_kunit_modules_list("arm64")
+    ],
+    prefix = _KUNIT_DIR + "/arm64",
+    visibility = ["//visibility:private"],
+)
+
+pkg_files(
     name = "kunit_modules_x86_64",
     srcs = [
         ":kernel_x86_64/" + e
@@ -903,6 +963,15 @@ pkg_filegroup(
     name = "kunit_tests_arm64_pkg_files",
     srcs = [
         ":kunit_modules_arm64",
+        ":kunit_tests_config_arm64",
+    ],
+    visibility = ["//visibility:private"],
+)
+
+pkg_filegroup(
+    name = "kunit_tests_arm64_16k_pkg_files",
+    srcs = [
+        ":kunit_modules_arm64_16k",
         ":kunit_tests_config_arm64",
     ],
     visibility = ["//visibility:private"],
@@ -923,6 +992,14 @@ pkg_install(
     name = "kunit_tests_arm64",
     srcs = [
         ":kunit_tests_arm64_pkg_files",
+    ],
+    visibility = ["//visibility:private"],
+)
+
+pkg_install(
+    name = "kunit_tests_arm64_16k",
+    srcs = [
+        ":kunit_tests_arm64_16k_pkg_files",
     ],
     visibility = ["//visibility:private"],
 )
@@ -1025,12 +1102,12 @@ ddk_headers(
     name = "all_headers_allowlist_aarch64",
     hdrs = [
         "drivers/dma-buf/heaps/deferred-free-helper.h",
+        "drivers/dma/dmaengine.h",
         "drivers/extcon/extcon.h",
         "drivers/pci/controller/dwc/pcie-designware.h",
         "drivers/thermal/thermal_core.h",
         "drivers/thermal/thermal_netlink.h",
         "drivers/ufs/core/ufshcd-crypto.h",
-        "drivers/ufs/core/ufshcd-priv.h",
         "drivers/ufs/host/ufshcd-pltfrm.h",
         "drivers/usb/dwc3/core.h",
         "sound/usb/card.h",
@@ -1046,6 +1123,7 @@ ddk_headers(
         "arch/arm64/include",
         "arch/arm64/include/uapi",
         "drivers/dma-buf",
+        "drivers/dma",
         "drivers/extcon",
         "drivers/pci/controller/dwc",
         "drivers/thermal",
@@ -2155,6 +2233,26 @@ cc_binary_with_abi(
     ],
 )
 
+cc_binary_with_abi(
+    name = "kselftest_wrapfd_test",
+    srcs = [
+        "include/uapi/linux/wrapfd.h",
+        "tools/include/linux/align.h",
+        "tools/include/uapi/linux/const.h",
+        "tools/testing/selftests/drivers/wrapfd/wrapfd.c",
+    ],
+    copts = _KSELFTEST_COPTS,
+    includes = [
+        "include/uapi",
+        "tools/include",
+        "tools/testing/selftests",
+    ],
+    linkopts = ["-static"],
+    path_prefix = _KSELFTEST_DIR,
+    visibility = ["//visibility:private"],
+    deps = [":kselftest_headers_lib"],
+)
+
 copy_file(
     name = "kselftest_gen_config",
     src = select({
@@ -2228,6 +2326,7 @@ android_filegroup(
         ":kselftest_vdso_vdso_test_clock_getres_x86_64",
         ":kselftest_vdso_vdso_test_getcpu_x86_64",
         ":kselftest_vdso_vdso_test_gettimeofday_x86_64",
+        ":kselftest_wrapfd_test_x86_64",
         ":kselftest_x86_check_initial_reg_state_x86_64",
         ":kselftest_x86_ldt_gdt_x86_64",
         ":kselftest_x86_ptrace_syscall_x86_64",
@@ -2433,6 +2532,7 @@ android_filegroup(
         ":kselftest_vdso_vdso_test_clock_getres_arm64",
         ":kselftest_vdso_vdso_test_getcpu_arm64",
         ":kselftest_vdso_vdso_test_gettimeofday_arm64",
+        ":kselftest_wrapfd_test_arm64",
     ],
     cpu = "arm64",
     visibility = ["//visibility:private"],
@@ -2475,6 +2575,16 @@ pkg_zip(
         ":kunit_tests_arm64_pkg_files",
     ],
     out = "arm64/tests.zip",
+    visibility = ["//visibility:public"],
+)
+
+pkg_zip(
+    name = "tests_zip_arm64_16k",
+    srcs = [
+        ":kselftest_tests_arm64_pkg_files",
+        ":kunit_tests_arm64_16k_pkg_files",
+    ],
+    out = "arm64_16k/tests.zip",
     visibility = ["//visibility:public"],
 )
 

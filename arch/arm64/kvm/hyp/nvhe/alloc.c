@@ -556,7 +556,13 @@ void *hyp_alloc(size_t size)
 	unsigned long chunk_addr;
 	int missing_map, ret = 0;
 
-	size = ALIGN(size, MIN_ALLOC);
+	/* constrained by chunk_hdr *_size types */
+	if (size > U32_MAX) {
+		ret = -E2BIG;
+		goto end_unlocked;
+	}
+
+	size = ALIGN(size ?: MIN_ALLOC, MIN_ALLOC);
 
 	hyp_spin_lock(&allocator->lock);
 
@@ -591,9 +597,11 @@ void *hyp_alloc(size_t size)
 	}
 
 	WARN_ON(chunk_install(chunk, size, last_chunk, allocator));
+
 end:
 	hyp_spin_unlock(&allocator->lock);
 
+end_unlocked:
 	*(this_cpu_ptr(&hyp_allocator_errno)) = ret;
 
 	/* Enforce zeroing allocated memory */
@@ -640,6 +648,7 @@ void hyp_free(void *addr)
 	prev_chunk = chunk_get_prev(chunk, allocator);
 	next_chunk = chunk_get_next(chunk, allocator);
 
+	WARN_ON(!chunk->alloc_size);
 	chunk->alloc_size = 0;
 	chunk_hash_update(chunk);
 
