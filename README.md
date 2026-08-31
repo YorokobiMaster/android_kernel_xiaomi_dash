@@ -1,156 +1,85 @@
-# How do I submit patches to Android Common Kernels
+# android_kernel_xiaomi_dash
 
-1. BEST: Make all of your changes to upstream Linux. If appropriate, backport to the stable releases.
-   These patches will be merged automatically in the corresponding common kernels. If the patch is already
-   in upstream Linux, post a backport of the patch that conforms to the patch requirements below.
-   - Do not send patches upstream that contain only symbol exports. To be considered for upstream Linux,
-additions of `EXPORT_SYMBOL_GPL()` require an in-tree modular driver that uses the symbol -- so include
-the new driver or changes to an existing driver in the same patchset as the export.
-   - When sending patches upstream, the commit message must contain a clear case for why the patch
-is needed and beneficial to the community. Enabling out-of-tree drivers or functionality is not
-a persuasive case.
+English|[简体中文](README_zh.md)
 
-2. LESS GOOD: Develop your patches out-of-tree (from an upstream Linux point-of-view). Unless these are
-   fixing an Android-specific bug, these are very unlikely to be accepted unless they have been
-   coordinated with kernel-team@android.com. If you want to proceed, post a patch that conforms to the
-   patch requirements below.
+- Linux kernel entry point docs: [README](README)
+- How do I submit patches to Android Common Kernels: [ACK_PATCH_SUBMISSION](README_ACK_PATCH_SUBMISSION.md)
 
-# Common Kernel patch requirements
+This is an unofficial kernel tree for the Redmi Turbo 5 Max (codename `dash`), spun up for my personal ~~LineageOS 23.2 bringup~~ ~~suffering through MediaTek's finest hot garbage~~ tinkering pleasure.
 
-- All patches must conform to the Linux kernel coding standards and pass `scripts/checkpatch.pl`
-- Patches shall not break gki_defconfig or allmodconfig builds for arm, arm64, x86, x86_64 architectures
-(see  https://source.android.com/setup/build/building-kernels)
-- If the patch is not merged from an upstream branch, the subject must be tagged with the type of patch:
-`UPSTREAM:`, `BACKPORT:`, `FROMGIT:`, `FROMLIST:`, or `ANDROID:`.
-- All patches must have a `Change-Id:` tag (see https://gerrit-review.googlesource.com/Documentation/user-changeid.html)
-- If an Android bug has been assigned, there must be a `Bug:` tag.
-- All patches must have a `Signed-off-by:` tag by the author and the submitter
+**Heads up:** Known missing kernel module sources required for basic booting and daily usage have been reverse-engineered and filled in, but weird bugs of varying severity may still be lurking around. Also, several modules essential to HyperOS are missing here—**do NOT flash this directly over HyperOS.**
 
-Additional requirements are listed below based on patch type
+~~If you want those missing modules back, DIY and send a PR (?).~~
 
-## Requirements for backports from mainline Linux: `UPSTREAM:`, `BACKPORT:`
+Due to copyright and licensing being a total minefield, I’ve tried my best to sort things out. Mismatched copyright headers, wrong licenses, or accidental attribution mess-ups might still exist.
 
-- If the patch is a cherry-pick from Linux mainline with no changes at all
-    - tag the patch subject with `UPSTREAM:`.
-    - add upstream commit information with a `(cherry picked from commit ...)` line
-    - Example:
-        - if the upstream commit message is
-```
-        important patch from upstream
+If you spot code that belongs to you and isn't properly credited, please reach out at `root@sandai.me` or open an Issue, and I'll sort it out ASAP. An email is preferred—just in case I spontaneously touch grass and disappear from GitHub one day.
 
-        This is the detailed description of the important patch
+- **Device**: Redmi Turbo 5 Max
+- **Codename**: `dash`
+- **SoC**: MediaTek Dimensity 9500s / mt6991
+- **Current Version**: 6.6.142
 
-        Signed-off-by: Fred Jones <fred.jones@foo.org>
-```
->- then Joe Smith would upload the patch for the common kernel as
-```
-        UPSTREAM: important patch from upstream
+## Reimplemented / Injected Modules
 
-        This is the detailed description of the important patch
+These modules were reconstructed through iterative disassembly and reverse-engineering of stock binaries from `OS3.0.305.0.WPLCNXM` (Kernel `6.6.118`) using Codex (`gpt-5.6-sol`) / ChatGPT (`gpt-5.6-pro`), alongside references to previously published code from Xiaomi and the open-source community. Some custom redesigns and patches were added along the way. Heads up.
 
-        Signed-off-by: Fred Jones <fred.jones@foo.org>
+Also, parts of the implementation were tailored specifically for `dash`'s current bringup needs and might not play nice on generic ROMs. If you plan to cherry-pick this into your own project, check what changed and why first. Feel free to ask if something looks confusing. ~~Not like I’ll necessarily remember why I wrote it though.~~
 
-        Bug: 135791357
-        Change-Id: I4caaaa566ea080fa148c5e768bb1a0b6f7201c01
-        (cherry picked from commit c31e73121f4c1ec41143423ac6ce3ce6dafdcec1)
-        Signed-off-by: Joe Smith <joe.smith@foo.org>
-```
+The table below lists sources that were missing from MiCode's public baseline [dash (9c6256406e2a)](https://github.com/MiCode/MTK_kernel_device_modules/tree/dash-w-oss) and subsequently reimplemented in this repository.
 
-- If the patch requires any changes from the upstream version, tag the patch with `BACKPORT:`
-instead of `UPSTREAM:`.
-    - use the same tags as `UPSTREAM:`
-    - add comments about the changes under the `(cherry picked from commit ...)` line
-    - Example:
-```
-        BACKPORT: important patch from upstream
+All build targets below have been verified to generate successfully in a full customer build; however, **"it compiles" does not mean "it works perfectly."**
 
-        This is the detailed description of the important patch
+Some notes might be slightly outdated because I got lazy. When in doubt, read the source. ~~Bed good. Code bad. Me sleep forever now.~~
 
-        Signed-off-by: Fred Jones <fred.jones@foo.org>
+| Build Target | Added Source | Git Commit | Status / Notes |
+|---|---|---|---|
+| `nt38771_touch_dash.ko` | [`drivers/input/touchscreen/NT38771/nt387xx.c`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/blob/dash-w-oss/drivers/input/touchscreen/NT38771/nt387xx.c) | [`1a06e9dbcb21`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/commit/1a06e9dbcb2185806dcfef22f15a67129397fc2b) | Added initial NT38771 baseline; later completed pinctrl, THP, gestures, and power lifecycle routines. |
+| `xiaomi_touch_dash.ko` | [`drivers/input/touchscreen/xiaomi_touch/xiaomi_touch_core.c`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/blob/dash-w-oss/drivers/input/touchscreen/xiaomi_touch/xiaomi_touch_core.c) | [`3cb62b35aec9`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/commit/3cb62b35aec98f5cf739f1ec832948e4a20916c4) | Restored Xiaomi touch common layer; re-established touchscreen & FOD contracts alongside NT38771. |
+| `xiaomi_spi_tee.ko` | [`drivers/input/fingerprint/xiaomi_fp.c`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/blob/dash-w-oss/drivers/input/fingerprint/xiaomi_fp.c) | [`c2f002345855`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/commit/c2f002345855765f76a5f0243a07c215c004776f) | Restored Xiaomi fingerprint transport ABI. |
+| `simtray.ko` | [`drivers/misc/mediatek/simtray/simtray.c`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/blob/dash-w-oss/drivers/misc/mediatek/simtray/simtray.c) | [`7d288b0de68b`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/commit/7d288b0de68bf552f00e12befc9f2824474b9df0) | Added Xiaomi SIM tray status driver. Present in both stock containers. |
+| `crash_module.ko` | [`drivers/misc/xiaomi/crash_module/crash_module.c`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/blob/dash-w-oss/drivers/misc/xiaomi/crash_module/crash_module.c) | [`5c2352895f40`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/commit/5c2352895f40d6f8273d3c9c53441148b116242a) | Rebuilt matching stock behavior. |
+| `debug_ext.ko` | [`drivers/misc/xiaomi/debug_ext/debug_ext.c`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/blob/dash-w-oss/drivers/misc/xiaomi/debug_ext/debug_ext.c) | [`1f80032df1e5`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/commit/1f80032df1e5e3f958f6ae53f88c1584c9ea2b16) | Rebuilt matching stock behavior; upstream lineage noted inside source. |
+| `hwid.ko` | [`drivers/misc/xiaomi/hwid/hwid.c`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/blob/dash-w-oss/drivers/misc/xiaomi/hwid/hwid.c) | [`343c81b8eb44`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/commit/343c81b8eb447b78874f149b4b9124e9c357585f) | Rebuilt stock params and exported symbol ABI; omitted dead stock `/sys/hwid` node intentionally. |
+| `mi_memory.ko` | [`drivers/misc/xiaomi/mi_memory/mi_memory.c`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/blob/dash-w-oss/drivers/misc/xiaomi/mi_memory/mi_memory.c) | [`0e9dd2f365e3`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/commit/0e9dd2f365e3b4daeb16c8e4887b4ba1662c4b5c) | Rebuilt matching stock behavior; aligned with UFS diagnostic provider later. |
+| `mi_stack.ko` | [`drivers/misc/xiaomi/mi_stack/mi_stack.c`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/blob/dash-w-oss/drivers/misc/xiaomi/mi_stack/mi_stack.c) | [`1dbbb7b07cf6`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/commit/1dbbb7b07cf69226a198f7eb012fa3b0320adb85) | Part of `dash` diagnostic stack recreation. |
+| `mi_ubt.ko` | [`drivers/misc/xiaomi/mi_ubt/mi_ubt.c`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/blob/dash-w-oss/drivers/misc/xiaomi/mi_ubt/mi_ubt.c) | [`1dbbb7b07cf6`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/commit/1dbbb7b07cf69226a198f7eb012fa3b0320adb85) | Part of `dash` diagnostic stack recreation. |
+| `mi_ubt_test.ko` | [`drivers/misc/xiaomi/mi_ubt_test/mi_ubt_test.c`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/blob/dash-w-oss/drivers/misc/xiaomi/mi_ubt_test/mi_ubt_test.c) | [`1dbbb7b07cf6`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/commit/1dbbb7b07cf69226a198f7eb012fa3b0320adb85) | Part of `dash` diagnostic stack recreation. |
+| `perf_helper.ko` | [`drivers/misc/xiaomi/perf_helper/perf_helper.c`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/blob/dash-w-oss/drivers/misc/xiaomi/perf_helper/perf_helper.c) | [`f61679798165`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/commit/f61679798165773fa62176edef840592ca51f83d) | Rebuilt matching stock behavior; later completed memory reclaim logic. Present in both stock containers. |
+| `mi_thermal_interface.ko` | [`drivers/thermal/xiaomi/mi_thermal_interface.c`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/blob/dash-w-oss/drivers/thermal/xiaomi/mi_thermal_interface.c) | [`4256a6112fb3`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/commit/4256a6112fb3cd7c687fd96e1e40e145fbf6a95a) | Missing from MiCode's `dash` tree; merged back into the unified device-module build. |
+| `ufs-mediatek-mod-ise.ko` | [`drivers/ufs/ufs-mediatek-xiaomi.c`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/blob/dash-w-oss/drivers/ufs/ufs-mediatek-xiaomi.c) | [`c7890f5d60af`](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules/commit/c7890f5d60af88eca16d352583bcb7ebafe6b5df) | Added Xiaomi UFS diagnostic provider; statically linked into the composite module rather than built as a standalone `.ko`. |
 
-        Bug: 135791357
-        Change-Id: I4caaaa566ea080fa148c5e768bb1a0b6f7201c01
-        (cherry picked from commit c31e73121f4c1ec41143423ac6ce3ce6dafdcec1)
-        [joe: Resolved minor conflict in drivers/foo/bar.c ]
-        Signed-off-by: Joe Smith <joe.smith@foo.org>
-```
+## Related Repositories
 
-## Requirements for other backports: `FROMGIT:`, `FROMLIST:`,
+Full builds and device bringups require the following trees:
 
-- If the patch has been merged into an upstream maintainer tree, but has not yet
-been merged into Linux mainline
-    - tag the patch subject with `FROMGIT:`
-    - add info on where the patch came from as `(cherry picked from commit <sha1> <repo> <branch>)`. This
-must be a stable maintainer branch (not rebased, so don't use `linux-next` for example).
-    - if changes were required, use `BACKPORT: FROMGIT:`
-    - Example:
-        - if the commit message in the maintainer tree is
-```
-        important patch from upstream
+- [Kernel build](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_build)
+- [Bazel MGK rules](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_bazel_mgk_rules)
+- [MediaTek device modules](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_device_modules)
+- [MediaTek kernel modules](https://github.com/YorokobiMaster/android_kernel_xiaomi_dash_mtk_modules)
 
-        This is the detailed description of the important patch
+~~No prebuilt boot images provided. Build it yourself.~~
 
-        Signed-off-by: Fred Jones <fred.jones@foo.org>
-```
->- then Joe Smith would upload the patch for the common kernel as
-```
-        FROMGIT: important patch from upstream
+## Disclaimer
 
-        This is the detailed description of the important patch
+**YOUR WARRANTY IS NOW VOID.**
 
-        Signed-off-by: Fred Jones <fred.jones@foo.org>
+This project is provided **"AS IS"** without warranty of any kind. I do NOT guarantee that it will:
 
-        Bug: 135791357
-        (cherry picked from commit 878a2fd9de10b03d11d2f622250285c7e63deace
-         https://git.kernel.org/pub/scm/linux/kernel/git/foo/bar.git test-branch)
-        Change-Id: I4caaaa566ea080fa148c5e768bb1a0b6f7201c01
-        Signed-off-by: Joe Smith <joe.smith@foo.org>
-```
+- Compile cleanly on your machine
+- Boot, stay alive, or run stably
+- Play nice with your specific firmware, vendor blob set, or bootloader revision
+- Not cause sudden data loss, bootloops, hard bricks, or thermonuclear war
+- Prevent your device from catching fire, exploding, summoning demons, or dying permanently etc.
 
+Only proceed if you actually understand the Android boot chain, partition maps, kernel building, and unbricking/EDL recovery workflows. **Any risk of building, flashing, or bricking your phone rests entirely on you.**
 
-- If the patch has been submitted to LKML, but not accepted into any maintainer tree
-    - tag the patch subject with `FROMLIST:`
-    - add a `Link:` tag with a link to the submittal on lore.kernel.org
-    - add a `Bug:` tag with the Android bug (required for patches not accepted into
-a maintainer tree)
-    - if changes were required, use `BACKPORT: FROMLIST:`
-    - Example:
-```
-        FROMLIST: important patch from upstream
+This project is NOT affiliated with or endorsed by Xiaomi, MediaTek, Google, or the LineageOS project.
 
-        This is the detailed description of the important patch
+## Licensing
 
-        Signed-off-by: Fred Jones <fred.jones@foo.org>
+Individual files remain subject to their original upstream licenses. See [COPYING](COPYING) and any applicable license notices.
 
-        Bug: 135791357
-        Link: https://lore.kernel.org/lkml/20190619171517.GA17557@someone.com/
-        Change-Id: I4caaaa566ea080fa148c5e768bb1a0b6f7201c01
-        Signed-off-by: Joe Smith <joe.smith@foo.org>
-```
+In addition (and purely in spirit), please observe the non-legally-binding moral terms of the [Don't Be A Dick License v1.2](DBAD.md) and [The Fuck Around And Find Out License v0.2](FAFOL.md).
 
-- If a patch has been submitted to the community, but rejected, do NOT use the
-  `FROMLIST:` tag to try to hide this fact.  Use the `ANDROID:` tag as
-  described below as this must be considered as an Android-specific submission,
-  not an upstream submission as the community will not accept these changes
-  as-is.
-
-## Requirements for Android-specific patches: `ANDROID:`
-
-- If the patch is fixing a bug to Android-specific code
-    - tag the patch subject with `ANDROID:`
-    - add a `Fixes:` tag that cites the patch with the bug
-    - Example:
-```
-        ANDROID: fix android-specific bug in foobar.c
-
-        This is the detailed description of the important fix
-
-        Fixes: 1234abcd2468 ("foobar: add cool feature")
-        Change-Id: I4caaaa566ea080fa148c5e768bb1a0b6f7201c01
-        Signed-off-by: Joe Smith <joe.smith@foo.org>
-```
-
-- If the patch is a new feature
-    - tag the patch subject with `ANDROID:`
-    - add a `Bug:` tag with the Android bug (required for android-specific features)
-
+**TL;DR:** DON'T BE A DICK, DIY your own stuff, and remember: FUCK AROUND AND FIND OUT.
