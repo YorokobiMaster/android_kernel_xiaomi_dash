@@ -123,4 +123,15 @@ config ANDROID_WRAPFD
 	  file supporting ioctl API for file ownership that controls ability to
 	  map the file.
 
+config ANDROID_DSU_AVB_BYPASS
+	bool "Android first-stage orange bootconfig view"
+	depends on BOOT_CONFIG && PROC_FS && TRACEPOINTS
+	default n
+	help
+	  Present an orange verified-boot state to PID 1 when it reads
+	  /proc/bootconfig, until its first exec of /system/bin/init.
+	  This lets first-stage AVB handling accept verification errors.
+	  The helper does not change vbmeta contents or SELinux enforcement.
+	  It applies to normal boots as well as DSU boots.
+
 endmenu

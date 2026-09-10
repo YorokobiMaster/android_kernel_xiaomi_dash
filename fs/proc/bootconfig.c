@@ -8,12 +8,15 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/bootconfig.h>
+#include <linux/android_dsu_avb.h>
 #include <linux/slab.h>
 
 static char *saved_boot_config;
 
 static int boot_config_proc_show(struct seq_file *m, void *v)
 {
+	if (android_dsu_avb_bootconfig_active())
+		seq_puts(m, "androidboot.verifiedbootstate = \"orange\"\n");
 	if (saved_boot_config)
 		seq_puts(m, saved_boot_config);
 	return 0;
